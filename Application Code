@@ -1,0 +1,812 @@
+import React, { useMemo, useRef, useState } from "react";
+
+const NOTES = [
+  "C4",
+  "D4",
+  "E4",
+  "F4",
+  "G4",
+  "A4",
+  "B4",
+  "C5",
+  "D5",
+  "E5",
+  "F5",
+  "G5",
+  "A5",
+  "B5",
+];
+
+const TASK_A = [
+  ["C4", "E4", "G4", "A4", "C5"],
+  ["D4", "F4", "A4", "C5", "E5", "G5"],
+  ["E4", "G4", "B4", "D5", "F5", "A5", "C5"],
+  ["F4", "A4", "C5", "E5", "G5", "B5", "D5", "E4"],
+  ["G4", "B4", "D5", "F5", "A5", "C5", "E5", "F4", "A4"],
+  ["A4", "C5", "E5", "G5", "B5", "D5", "F5", "C4", "E4", "G4"],
+];
+
+const TASK_B = [
+  ["D4", "G4", "A4", "C5", "E5"],
+  ["E4", "A4", "B4", "D5", "F5", "G5"],
+  ["F4", "B4", "C5", "E5", "G5", "A5", "D5"],
+  ["G4", "C5", "D5", "F5", "A5", "B5", "E5", "A4"],
+  ["A4", "D5", "E5", "G5", "B5", "C5", "F5", "B4", "D4"],
+  ["B4", "E5", "F5", "A5", "C5", "D5", "G5", "E4", "G4", "C4"],
+];
+
+const DEFAULT_ORDER = [
+  {
+    key: "immediate",
+    label: "Immediate Feedback",
+    taskName: "Task A",
+    sequences: TASK_A,
+  },
+  {
+    key: "delayed",
+    label: "Delayed Feedback",
+    taskName: "Task B",
+    sequences: TASK_B,
+  },
+];
+
+const styles = {
+  page: {
+    minHeight: "100vh",
+    background: "#f6f7fb",
+    padding: "16px",
+    fontFamily: "Arial, sans-serif",
+    color: "#1e293b",
+  },
+  container: {
+    maxWidth: "1200px",
+    margin: "0 auto",
+  },
+  card: {
+    background: "white",
+    borderRadius: "20px",
+    padding: "18px",
+    boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
+    marginBottom: "16px",
+  },
+  title: {
+    fontSize: "28px",
+    margin: "0 0 8px 0",
+  },
+  subtitle: {
+    margin: 0,
+    color: "#475569",
+  },
+  row: {
+    display: "flex",
+    gap: "12px",
+    flexWrap: "wrap",
+  },
+  field: {
+    flex: "1 1 220px",
+  },
+  input: {
+    width: "100%",
+    padding: "12px",
+    borderRadius: "12px",
+    border: "1px solid #cbd5e1",
+    fontSize: "16px",
+    boxSizing: "border-box",
+  },
+  button: {
+    padding: "12px 16px",
+    borderRadius: "12px",
+    border: "1px solid #cbd5e1",
+    background: "white",
+    fontSize: "15px",
+    cursor: "pointer",
+  },
+  primaryButton: {
+    padding: "12px 16px",
+    borderRadius: "12px",
+    border: "none",
+    background: "#2563eb",
+    color: "white",
+    fontSize: "15px",
+    cursor: "pointer",
+  },
+  badge: {
+    display: "inline-block",
+    padding: "8px 12px",
+    borderRadius: "999px",
+    border: "1px solid #cbd5e1",
+    background: "#f8fafc",
+    fontSize: "14px",
+    marginRight: "8px",
+    marginBottom: "8px",
+  },
+  pianoGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(90px, 1fr))",
+    gap: "10px",
+  },
+  pianoKey: {
+    minHeight: "100px",
+    borderRadius: "16px",
+    border: "2px solid #cbd5e1",
+    background: "white",
+    fontSize: "18px",
+    fontWeight: "bold",
+    cursor: "pointer",
+    touchAction: "manipulation",
+  },
+  infoBox: {
+    background: "#f1f5f9",
+    borderRadius: "16px",
+    padding: "14px",
+    marginTop: "12px",
+  },
+  chipWrap: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "8px",
+    marginTop: "8px",
+  },
+  chip: {
+    padding: "8px 10px",
+    borderRadius: "12px",
+    border: "1px solid #cbd5e1",
+    background: "white",
+    fontSize: "14px",
+  },
+  table: {
+    width: "100%",
+    borderCollapse: "collapse",
+    marginTop: "8px",
+  },
+  th: {
+    textAlign: "left",
+    padding: "10px",
+    background: "#e2e8f0",
+    fontSize: "14px",
+  },
+  td: {
+    textAlign: "left",
+    padding: "10px",
+    borderTop: "1px solid #e2e8f0",
+    fontSize: "14px",
+  },
+};
+
+function arrayEquals(a, b) {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
+function downloadFile(filename, content, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function toCsv(rows) {
+  if (!rows.length) return "";
+  const headers = Object.keys(rows[0]);
+  const lines = [headers.join(",")];
+  rows.forEach((row) => {
+    lines.push(headers.map((h) => JSON.stringify(row[h] ?? "")).join(","));
+  });
+  return lines.join("\n");
+}
+
+function useTone() {
+  const audioContextRef = useRef(null);
+  const freqs = useMemo(
+    () => ({
+      C4: 261.63,
+      D4: 293.66,
+      E4: 329.63,
+      F4: 349.23,
+      G4: 392.0,
+      A4: 440.0,
+      B4: 493.88,
+      C5: 523.25,
+      D5: 587.33,
+      E5: 659.25,
+      F5: 698.46,
+      G5: 783.99,
+      A5: 880.0,
+      B5: 987.77,
+    }),
+    []
+  );
+
+  const playNote = async (note, duration = 0.25) => {
+    if (!audioContextRef.current) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      audioContextRef.current = new Ctx();
+    }
+    const ctx = audioContextRef.current;
+    if (ctx.state === "suspended") {
+      await ctx.resume();
+    }
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "triangle";
+    osc.frequency.value = freqs[note] || 440;
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + duration + 0.02);
+  };
+
+  return { playNote };
+}
+
+function App() {
+  const { playNote } = useTone();
+  const [participantId, setParticipantId] = useState("");
+  const [modeOrder, setModeOrder] = useState(DEFAULT_ORDER);
+  const [phaseIndex, setPhaseIndex] = useState(0);
+  const [sequenceIndex, setSequenceIndex] = useState(0);
+  const [attempt, setAttempt] = useState(1);
+  const [playedNotes, setPlayedNotes] = useState([]);
+  const [feedbackMap, setFeedbackMap] = useState({});
+  const [previewIndex, setPreviewIndex] = useState(-1);
+  const [trialStartedAt, setTrialStartedAt] = useState(null);
+  const [trialResults, setTrialResults] = useState([]);
+  const [status, setStatus] = useState("ready");
+  const [lastEvaluation, setLastEvaluation] = useState(null);
+  const [showSummary, setShowSummary] = useState(false);
+  const [sequenceVisible, setSequenceVisible] = useState(true);
+
+  const currentPhase = modeOrder[phaseIndex];
+  const currentSequence = currentPhase.sequences[sequenceIndex];
+  const progress = Math.round(((phaseIndex * 6 + sequenceIndex) / 12) * 100);
+
+  const resetCurrentAttempt = () => {
+    setPlayedNotes([]);
+    setFeedbackMap({});
+    setLastEvaluation(null);
+    setStatus("ready");
+    setTrialStartedAt(null);
+    setSequenceVisible(true);
+  };
+
+  const resetEntireSession = (newOrder) => {
+    if (newOrder) setModeOrder(newOrder);
+    setPhaseIndex(0);
+    setSequenceIndex(0);
+    setAttempt(1);
+    setPlayedNotes([]);
+    setFeedbackMap({});
+    setPreviewIndex(-1);
+    setTrialStartedAt(null);
+    setTrialResults([]);
+    setStatus("ready");
+    setLastEvaluation(null);
+    setShowSummary(false);
+  };
+
+  const previewSequence = async () => {
+    setStatus("preview");
+    setSequenceVisible(true);
+    setPlayedNotes([]);
+    setFeedbackMap({});
+    setLastEvaluation(null);
+    for (let i = 0; i < currentSequence.length; i++) {
+      setPreviewIndex(i);
+      await playNote(currentSequence[i], 0.28);
+      await new Promise((resolve) => setTimeout(resolve, 420));
+    }
+    setPreviewIndex(-1);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    setSequenceVisible(false);
+    setStatus("playing");
+    setTrialStartedAt(Date.now());
+  };
+
+  const evaluateAttempt = (notes) => {
+    const correct = arrayEquals(notes, currentSequence);
+    const elapsedMs = trialStartedAt ? Date.now() - trialStartedAt : 0;
+    const correctnessByIndex = currentSequence.map(
+      (note, i) => notes[i] === note
+    );
+    return {
+      correct,
+      elapsedMs,
+      correctnessByIndex,
+      errors: correctnessByIndex.filter((x) => !x).length,
+    };
+  };
+
+  const moveForward = () => {
+    if (sequenceIndex < currentPhase.sequences.length - 1) {
+      setSequenceIndex(sequenceIndex + 1);
+      setAttempt(1);
+      resetCurrentAttempt();
+      return;
+    }
+    if (phaseIndex < modeOrder.length - 1) {
+      setPhaseIndex(phaseIndex + 1);
+      setSequenceIndex(0);
+      setAttempt(1);
+      resetCurrentAttempt();
+      return;
+    }
+    setShowSummary(true);
+    setStatus("finished");
+  };
+
+  const saveResultAndAdvance = (evaluation, notes) => {
+    const row = {
+      participantId: participantId || "anonymous",
+      condition: currentPhase.label,
+      task: currentPhase.taskName,
+      sequenceNumber: sequenceIndex + 1,
+      sequenceLength: currentSequence.length,
+      targetSequence: currentSequence.join("-"),
+      playedSequence: notes.join("-"),
+      attempt,
+      success: evaluation.correct ? "yes" : "no",
+      completionTimeSeconds: Number((evaluation.elapsedMs / 1000).toFixed(2)),
+      errors: evaluation.errors,
+      timestamp: new Date().toISOString(),
+    };
+
+    setTrialResults((prev) => [...prev, row]);
+
+    if (evaluation.correct) {
+      moveForward();
+    } else if (attempt < 5) {
+      setAttempt(attempt + 1);
+      setPlayedNotes([]);
+      setFeedbackMap({});
+      setStatus("ready");
+      setTrialStartedAt(null);
+    } else {
+      moveForward();
+    }
+  };
+
+  const handlePress = async (note) => {
+    if (status !== "playing") return;
+    await playNote(note, 0.2);
+    const index = playedNotes.length;
+    const next = [...playedNotes, note];
+    setPlayedNotes(next);
+
+    if (currentPhase.key === "immediate") {
+      const ok = currentSequence[index] === note;
+      setFeedbackMap((prev) => ({
+        ...prev,
+        [index]: ok ? "correct" : "wrong",
+      }));
+    }
+
+    if (next.length === currentSequence.length) {
+      const evaluation = evaluateAttempt(next);
+      setLastEvaluation(evaluation);
+      if (currentPhase.key === "delayed") {
+        const newMap = {};
+        evaluation.correctnessByIndex.forEach((ok, i) => {
+          newMap[i] = ok ? "correct" : "wrong";
+        });
+        setFeedbackMap(newMap);
+      }
+      setStatus(evaluation.correct ? "success" : "fail");
+      setTimeout(() => saveResultAndAdvance(evaluation, next), 900);
+    }
+  };
+
+  const aggregate = useMemo(() => {
+    const byCondition = {};
+    trialResults.forEach((r) => {
+      if (!byCondition[r.condition]) byCondition[r.condition] = [];
+      byCondition[r.condition].push(r);
+    });
+    return Object.entries(byCondition).map(([condition, rows]) => {
+      const avgTime =
+        rows.reduce((sum, r) => sum + r.completionTimeSeconds, 0) / rows.length;
+      const avgAttempts =
+        rows.reduce((sum, r) => sum + r.attempt, 0) / rows.length;
+      const successRate =
+        (rows.filter((r) => r.success === "yes").length / rows.length) * 100;
+      return {
+        condition,
+        trials: rows.length,
+        avgTime: avgTime.toFixed(2),
+        avgAttempts: avgAttempts.toFixed(2),
+        successRate: successRate.toFixed(0) + "%",
+      };
+    });
+  }, [trialResults]);
+
+  const exportCsv = () => {
+    downloadFile(
+      `piano_feedback_${participantId || "anonymous"}.csv`,
+      toCsv(trialResults),
+      "text/csv"
+    );
+  };
+
+  const exportJson = () => {
+    downloadFile(
+      `piano_feedback_${participantId || "anonymous"}.json`,
+      JSON.stringify(
+        {
+          participantId,
+          order: modeOrder.map((m) => m.label),
+          results: trialResults,
+        },
+        null,
+        2
+      ),
+      "application/json"
+    );
+  };
+
+  const instructionText =
+    currentPhase.key === "immediate"
+      ? "Immediate mode: each key press is marked right away."
+      : "Delayed mode: no feedback appears until the whole sequence is entered.";
+
+  return (
+    <div style={styles.page}>
+      <div style={styles.container}>
+        <div style={styles.card}>
+          <h1 style={styles.title}>Piano Feedback Timing App</h1>
+          <p style={styles.subtitle}>
+            Tablet-friendly experiment interface for immediate vs delayed
+            feedback.
+          </p>
+
+          <div style={{ ...styles.row, marginTop: "16px" }}>
+            <div style={styles.field}>
+              <div style={{ marginBottom: "8px", fontWeight: "bold" }}>
+                Participant ID
+              </div>
+              <input
+                style={styles.input}
+                value={participantId}
+                onChange={(e) => setParticipantId(e.target.value)}
+                placeholder="e.g. P01"
+              />
+            </div>
+
+            <div style={styles.field}>
+              <div style={{ marginBottom: "8px", fontWeight: "bold" }}>
+                Condition Order
+              </div>
+              <div style={styles.row}>
+                <button
+                  style={styles.button}
+                  onClick={() => resetEntireSession(DEFAULT_ORDER)}
+                >
+                  A → B
+                </button>
+                <button
+                  style={styles.button}
+                  onClick={() =>
+                    resetEntireSession([DEFAULT_ORDER[1], DEFAULT_ORDER[0]])
+                  }
+                >
+                  B → A
+                </button>
+              </div>
+            </div>
+
+            <div style={styles.field}>
+              <div style={{ marginBottom: "8px", fontWeight: "bold" }}>
+                Progress
+              </div>
+              <div style={{ ...styles.infoBox, padding: "12px" }}>
+                {progress}% complete
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div
+          style={{ display: "grid", gridTemplateColumns: "1fr", gap: "16px" }}
+        >
+          <div style={styles.card}>
+            <div style={{ marginBottom: "12px" }}>
+              <span style={styles.badge}>{currentPhase.label}</span>
+              <span style={styles.badge}>Sequence {sequenceIndex + 1}/6</span>
+              <span style={styles.badge}>Length {currentSequence.length}</span>
+              <span style={styles.badge}>Attempt {attempt}/5</span>
+            </div>
+
+            <div style={styles.infoBox}>
+              <div
+                style={{
+                  fontSize: "14px",
+                  color: "#475569",
+                  marginBottom: "6px",
+                }}
+              >
+                Instructions
+              </div>
+              <div style={{ fontWeight: "bold" }}>{instructionText}</div>
+            </div>
+
+            <div style={{ ...styles.row, marginTop: "12px" }}>
+              <button
+                style={styles.primaryButton}
+                onClick={previewSequence}
+                disabled={status === "preview" || status === "playing"}
+              >
+                Play Target Sequence
+              </button>
+              <button style={styles.button} onClick={resetCurrentAttempt}>
+                Clear Attempt
+              </button>
+              <button
+                style={styles.button}
+                onClick={() => resetEntireSession()}
+              >
+                Reset Session
+              </button>
+            </div>
+
+            <div style={{ marginTop: "16px" }}>
+              <div style={{ fontWeight: "bold", marginBottom: "8px" }}>
+                Target Sequence
+              </div>
+              {sequenceVisible ? (
+                <div style={styles.chipWrap}>
+                  {currentSequence.map((note, i) => (
+                    <div
+                      key={note + i}
+                      style={{
+                        ...styles.chip,
+                        background: previewIndex === i ? "#dbeafe" : "white",
+                        borderColor: previewIndex === i ? "#3b82f6" : "#cbd5e1",
+                      }}
+                    >
+                      {note}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ ...styles.infoBox, color: "#64748b" }}>
+                  Sequence hidden during input.
+                </div>
+              )}
+            </div>
+
+            <div style={{ marginTop: "16px" }}>
+              <div style={{ fontWeight: "bold", marginBottom: "8px" }}>
+                Played Notes
+              </div>
+              <div style={styles.chipWrap}>
+                {playedNotes.length ? (
+                  playedNotes.map((note, i) => (
+                    <div
+                      key={note + i}
+                      style={{
+                        ...styles.chip,
+                        background:
+                          feedbackMap[i] === "correct"
+                            ? "#dcfce7"
+                            : feedbackMap[i] === "wrong"
+                            ? "#fee2e2"
+                            : "white",
+                        borderColor:
+                          feedbackMap[i] === "correct"
+                            ? "#22c55e"
+                            : feedbackMap[i] === "wrong"
+                            ? "#ef4444"
+                            : "#cbd5e1",
+                      }}
+                    >
+                      {i + 1}. {note}
+                    </div>
+                  ))
+                ) : (
+                  <div style={{ color: "#64748b" }}>No notes entered yet.</div>
+                )}
+              </div>
+            </div>
+
+            {lastEvaluation && (
+              <div style={styles.infoBox}>
+                <div style={{ fontWeight: "bold", marginBottom: "6px" }}>
+                  {lastEvaluation.correct
+                    ? "Correct sequence"
+                    : "Sequence incorrect"}
+                </div>
+                <div>
+                  Time: {(lastEvaluation.elapsedMs / 1000).toFixed(2)} s
+                </div>
+                <div>Errors: {lastEvaluation.errors}</div>
+              </div>
+            )}
+          </div>
+
+          <div style={styles.card}>
+            <div
+              style={{
+                fontWeight: "bold",
+                fontSize: "22px",
+                marginBottom: "12px",
+              }}
+            >
+              Touch Piano
+            </div>
+            <div
+              style={{
+                display: "flex",
+                gap: "0",
+                overflowX: "auto",
+                paddingBottom: "8px",
+              }}
+            >
+              {NOTES.map((note) => {
+                const matchedIndex = playedNotes.findIndex(
+                  (n, i) => n === note && feedbackMap[i]
+                );
+                let background =
+                  "linear-gradient(to bottom, #ffffff 0%, #f8fafc 100%)";
+                let borderColor = "#94a3b8";
+                let color = "#111827";
+
+                if (
+                  previewIndex >= 0 &&
+                  currentSequence[previewIndex] === note
+                ) {
+                  background = "#dbeafe";
+                  borderColor = "#3b82f6";
+                }
+                if (matchedIndex >= 0) {
+                  if (feedbackMap[matchedIndex] === "correct") {
+                    background = "#dcfce7";
+                    borderColor = "#22c55e";
+                  } else if (feedbackMap[matchedIndex] === "wrong") {
+                    background = "#fee2e2";
+                    borderColor = "#ef4444";
+                  }
+                }
+
+                return (
+                  <button
+                    key={note}
+                    style={{
+                      minWidth: "88px",
+                      height: "220px",
+                      borderRadius: "0 0 14px 14px",
+                      border: `2px solid ${borderColor}`,
+                      borderTop: "1px solid #cbd5e1",
+                      background,
+                      color,
+                      fontSize: "18px",
+                      fontWeight: "bold",
+                      cursor: "pointer",
+                      touchAction: "manipulation",
+                      marginRight: "4px",
+                      boxShadow: "0 6px 14px rgba(0,0,0,0.08)",
+                      display: "flex",
+                      alignItems: "flex-end",
+                      justifyContent: "center",
+                      paddingBottom: "18px",
+                    }}
+                    onClick={() => handlePress(note)}
+                  >
+                    {note}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ marginTop: "12px", color: "#64748b" }}>
+              Press Play Target Sequence first, then tap the notes on the
+              screen.
+            </div>
+          </div>
+
+          <div style={styles.card}>
+            <div
+              style={{
+                ...styles.row,
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <div style={{ fontWeight: "bold", fontSize: "22px" }}>
+                Data Summary
+              </div>
+              <div style={styles.row}>
+                <button
+                  style={styles.primaryButton}
+                  onClick={exportCsv}
+                  disabled={!trialResults.length}
+                >
+                  Export CSV
+                </button>
+                <button
+                  style={styles.button}
+                  onClick={exportJson}
+                  disabled={!trialResults.length}
+                >
+                  Export JSON
+                </button>
+              </div>
+            </div>
+
+            <div style={{ marginTop: "16px" }}>
+              {aggregate.length ? (
+                aggregate.map((item) => (
+                  <div
+                    key={item.condition}
+                    style={{ ...styles.infoBox, marginBottom: "10px" }}
+                  >
+                    <div style={{ fontWeight: "bold", marginBottom: "6px" }}>
+                      {item.condition}
+                    </div>
+                    <div>Trials logged: {item.trials}</div>
+                    <div>Average completion time: {item.avgTime} s</div>
+                    <div>Average attempts: {item.avgAttempts}</div>
+                    <div>Success rate: {item.successRate}</div>
+                  </div>
+                ))
+              ) : (
+                <div style={{ color: "#64748b" }}>
+                  No results yet. Complete trials to generate summary metrics.
+                </div>
+              )}
+            </div>
+
+            {showSummary && (
+              <div style={{ ...styles.infoBox, background: "#dcfce7" }}>
+                <div style={{ fontWeight: "bold" }}>Session complete</div>
+                <div style={{ marginTop: "4px" }}>
+                  You can now export the data and analyze it later.
+                </div>
+              </div>
+            )}
+
+            <div style={{ overflowX: "auto", marginTop: "16px" }}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Condition</th>
+                    <th style={styles.th}>Seq</th>
+                    <th style={styles.th}>Length</th>
+                    <th style={styles.th}>Attempt</th>
+                    <th style={styles.th}>Success</th>
+                    <th style={styles.th}>Time (s)</th>
+                    <th style={styles.th}>Errors</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {trialResults.length ? (
+                    trialResults.map((row, index) => (
+                      <tr key={index}>
+                        <td style={styles.td}>{row.condition}</td>
+                        <td style={styles.td}>{row.sequenceNumber}</td>
+                        <td style={styles.td}>{row.sequenceLength}</td>
+                        <td style={styles.td}>{row.attempt}</td>
+                        <td style={styles.td}>{row.success}</td>
+                        <td style={styles.td}>{row.completionTimeSeconds}</td>
+                        <td style={styles.td}>{row.errors}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td style={styles.td} colSpan="7">
+                        No trial data yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default App;
